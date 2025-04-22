@@ -134,8 +134,8 @@ class Loop:
 
         # Handle the sim and people first
         sim = self.sim
-        for key in ['sim', 'people']:
-            self.abs_tvecs[key] = sim.t.abstvec
+        self.abs_tvecs['sim'] = sim.t.tvec
+        self.abs_tvecs[sim.people.__class__.__name__.lower()] = sim.t.tvec
 
         # Handle all other modules
         for mod in sim.modules:
