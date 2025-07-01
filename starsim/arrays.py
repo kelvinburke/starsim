@@ -23,7 +23,9 @@ class BaseArr(np.lib.mixins.NDArrayOperatorsMixin):
     """
     An object that acts exactly like a NumPy array, except stores the values in self.values.
     """
-    def __init__(self, values, *args, **kwargs):
+    def __init__(self, values=None, *args, **kwargs):
+        if values is None:
+            values = []
         self.values = np.array(values, *args, **kwargs)
         return
 
@@ -489,7 +491,7 @@ class IndexArr(Arr):
         return
 
 
-class uids(np.ndarray):
+class uids(BaseArr):
     """
     Class to specify that integers should be interpreted as UIDs.
 
@@ -499,21 +501,45 @@ class uids(np.ndarray):
     UID operations.
     """
     def __new__(cls, arr=None):
+        # Handle various input types and convert to numpy array
         if isinstance(arr, np.ndarray): # Shortcut to typical use case, where the input is an array
-            return arr.astype(ss_int).view(cls)
+            values = arr.astype(ss_int)
         elif isinstance(arr, BoolArr): # Shortcut for arr.uids
             return arr.uids
+        elif isinstance(arr, BaseArr): # Handle other BaseArr subclasses
+            values = arr.values.astype(ss_int)
         elif isinstance(arr, set):
-            return np.fromiter(arr, dtype=ss_int).view(cls)
+            values = np.fromiter(arr, dtype=ss_int)
         elif arr is None: # Shortcut to return empty
-            return np.empty(0, dtype=ss_int).view(cls)
+            values = np.empty(0, dtype=ss_int)
         elif isinstance(arr, int): # Convert e.g. ss.uids(0) to ss.uids([0])
-            arr = [arr]
-        return np.asarray(arr, dtype=ss_int).view(cls) # Handle everything else
+            values = np.asarray([arr], dtype=ss_int)
+        else:
+            values = np.asarray(arr, dtype=ss_int) # Handle everything else
+
+        # Create instance using BaseArr's __init__
+        obj = object.__new__(cls)
+        BaseArr.__init__(obj, values)
+        return obj
+
+    def __getitem__(self, index):
+        """ Override BaseArr.__getitem__ to return uids objects instead of numpy arrays """
+        result = self.values[index]
+        # If result is a scalar, return it directly; otherwise wrap in uids
+        if np.isscalar(result):
+            return result
+        else:
+            return uids(result)
+
+    def copy(self):
+        """ Override to return uids object instead of numpy array """
+        return uids(self.values.copy())
 
     def concat(self, other, **kw): # Class and instance methods can't share a name
         """ Equivalent to np.concatenate(), but return correct type """
-        return np.concatenate([self, other], **kw).view(self.__class__)
+        other_vals = self._arr(other)
+        result = np.concatenate([self.values, other_vals], **kw)
+        return uids(result)
 
     @classmethod
     def cat(cls, *args, **kw):
@@ -521,44 +547,55 @@ class uids(np.ndarray):
         if len(args) == 0 or (len(args) == 1 and (args[0] is None or not len(args[0]))):
             return uids()
         arrs = args[0] if len(args) == 1 else args # TODO: handle one-array case
-        return np.concatenate(arrs, **kw).view(cls)
+        # Extract values from each array
+        vals = [BaseArr._arr(arr) for arr in arrs]
+        result = np.concatenate(vals, **kw)
+        return uids(result)
 
     def remove(self, other, **kw):
         """ Remove provided UIDs from current array"""
         if isinstance(other, BoolArr):
             other = other.uids
-        return np.setdiff1d(self, other, **kw).view(self.__class__)
+        other_vals = self._arr(other)
+        result = np.setdiff1d(self.values, other_vals, **kw)
+        return uids(result)
 
     def intersect(self, other, **kw):
         """ Keep only UIDs that are also present in the other array """
         if isinstance(other, BoolArr):
             other = other.uids
-        return np.intersect1d(self, other, **kw).view(self.__class__)
+        other_vals = self._arr(other)
+        result = np.intersect1d(self.values, other_vals, **kw)
+        return uids(result)
 
     def union(self, other, **kw):
         """ Return all UIDs present in both arrays """
         if isinstance(other, BoolArr):
             other = other.uids
-        return np.union1d(self, other, **kw).view(self.__class__)
+        other_vals = self._arr(other)
+        result = np.union1d(self.values, other_vals, **kw)
+        return uids(result)
 
     def xor(self, other, **kw):
         """ Return UIDs present in only one of the arrays """
         if isinstance(other, BoolArr):
             other = other.uids
-        return np.setxor1d(self, other, **kw).view(self.__class__)
+        other_vals = self._arr(other)
+        result = np.setxor1d(self.values, other_vals, **kw)
+        return uids(result)
 
     def to_numpy(self):
         """ Return a view as a standard NumPy array """
-        return self.view(np.ndarray)
+        return self.values
 
     def unique(self, return_index=False):
         """ Return unique UIDs; equivalent to np.unique() """
         if return_index:
-            arr, index = np.unique(self, return_index=True)
-            return arr.view(self.__class__), index
+            arr, index = np.unique(self.values, return_index=True)
+            return uids(arr), index
         else:
-            arr = np.unique(self).view(self.__class__)
-            return arr
+            arr = np.unique(self.values)
+            return uids(arr)
 
     # Implement collection of operators
     def __and__(self, other): return self.intersect(other)
